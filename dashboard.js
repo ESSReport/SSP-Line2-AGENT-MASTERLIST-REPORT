@@ -1,8 +1,10 @@
-// dashboard.js (final) - unified IDs, robust downloads, totals, leader filtering + redirect links + absolute leader filter
+/* =========================================================
+   DASHBOARD.JS – FINAL INTEGRATED VERSION
+   ========================================================= */
 
 /* -------------------------
    Configuration / Helpers
-   ------------------------- */
+------------------------- */
 const SHEET_ID = "1lukJC1vKSq02Nus23svZ21_pp-86fz0mU1EARjalCBI";
 const OPENSHEET_BASE = `https://opensheet.elk.sh/${SHEET_ID}`;
 const OPENSHEET = {
@@ -26,6 +28,10 @@ const parseNumber = v => {
   const n = Number(s);
   return isFinite(n) ? n : 0;
 };
+const parseCommRate = v => {
+  if (!v) return 0;
+  return parseFloat(String(v).replace("%",""))||0;
+};
 const normalize = row => {
   const out = {};
   for (const k in row) out[cleanKey(k)] = String(row[k]||"").trim();
@@ -34,57 +40,10 @@ const normalize = row => {
 
 let rawData = [], cachedData = [], filteredData = [];
 let currentPage = 1, rowsPerPage = 20;
-const PIN_CODE = "11012025";
-
-/* -------------------------
-   PIN Modal
-   ------------------------- */
-function showPinModal() {
-  if (sessionStorage.getItem("verifiedPin") === "true") return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    const overlay = document.createElement("div");
-    overlay.id = "pinOverlay";
-    overlay.style.cssText = `position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:9999;`;
-    overlay.innerHTML = `
-      <div style="width:360px;max-width:94%;background:#fff;border-radius:12px;padding:22px;text-align:center;">
-        <h2 style="margin:0 0 12px;color:#0077cc;">🔒 Enter PIN to access dashboard</h2>
-        <input id="pinInput" type="password" maxlength="12" autofocus
-          style="width:100%;padding:10px;font-size:16px;border-radius:8px;border:1px solid #ddd;text-align:center;" />
-        <div style="margin-top:14px;display:flex;gap:8px;justify-content:center;">
-          <button id="pinOk" style="padding:8px 12px;border-radius:8px;border:none;background:#0077cc;color:#fff;cursor:pointer;">Unlock</button>
-          <button id="pinCancel" style="padding:8px 12px;border-radius:8px;border:none;background:#ccc;color:#111;cursor:pointer;">Cancel</button>
-        </div>
-        <p id="pinError" style="color:#a00;margin-top:10px;display:none;">Incorrect PIN — try again</p>
-      </div>
-    `;
-    document.body.appendChild(overlay);
-
-    const pinInput = document.getElementById("pinInput");
-    const pinOk = document.getElementById("pinOk");
-    const pinCancel = document.getElementById("pinCancel");
-    const pinError = document.getElementById("pinError");
-
-    function ok() {
-      const val = pinInput.value?.trim();
-      if (val === PIN_CODE) {
-        overlay.remove();
-        sessionStorage.setItem("verifiedPin", "true");
-        resolve();
-      } else {
-        pinError.style.display = "block";
-        pinInput.value = "";
-        pinInput.focus();
-      }
-    }
-    pinOk.addEventListener("click", ok);
-    pinCancel.addEventListener("click", () => { overlay.remove(); reject(new Error("cancelled")); });
-    pinInput.addEventListener("keydown", (e) => { if (e.key === "Enter") ok(); if (e.key === "Escape") { overlay.remove(); reject(new Error("cancelled")); }});
-  });
-}
 
 /* -------------------------
    Fetch & Build Summary
-   ------------------------- */
+------------------------- */
 async function fetchShopsBalance(){
   const res = await fetch(OPENSHEET.SHOPS_BALANCE);
   if(!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -97,7 +56,9 @@ function buildSummary(data){
   data.forEach(r=>{
     const shop = (r["SHOP"]||r["SHOP NAME"]||"").trim();
     if(!shop) return;
-    if(!summary[shop]) summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({ [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ) ) })));
+    if(!summary[shop]) summary[shop] = Object.assign({}, ...HEADERS.map(h=> ({
+      [h]: (h==="SHOP NAME"? shop : (h==="TEAM LEADER"? ((r["TEAM LEADER"]||"").trim().toUpperCase()) : (h==="GROUP NAME"? ((r["GROUP NAME"]||"").trim().toUpperCase()) : 0) ))
+    })));
     ["SECURITY DEPOSIT","BRING FORWARD BALANCE","TOTAL DEPOSIT","TOTAL WITHDRAWAL","INTERNAL TRANSFER IN","INTERNAL TRANSFER OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","DP COMM","WD COMM","ADD COMM"].forEach(key=>{
       summary[shop][key] = (summary[shop][key] || 0) + parseNumber(r[key]);
     });
@@ -117,7 +78,7 @@ function buildSummary(data){
 
 /* -------------------------
    Render Table & Totals
-   ------------------------- */
+------------------------- */
 function renderTable(){
   const tableHead = document.getElementById("tableHeader");
   const tableBody = document.getElementById("tableBody");
@@ -188,7 +149,7 @@ function updateTeamDashboardLink(){
 
 /* -------------------------
    Filters
-   ------------------------- */
+------------------------- */
 function buildTeamLeaderDropdown(data){
   const dd = document.getElementById("leaderFilter");
   dd.innerHTML = '<option value="ALL">All Team Leaders</option>';
@@ -217,11 +178,10 @@ function filterData(){
 }
 
 /* -------------------------
-   CSV Export (filteredData)
-   ------------------------- */
+   CSV Export
+------------------------- */
 function exportCSV() {
   if (!filteredData.length) { alert("No data to export"); return; }
-  // build CSV rows
   const rows = [HEADERS.join(",")];
   filteredData.forEach(r=>{
     const row = HEADERS.map(h=> {
@@ -231,241 +191,155 @@ function exportCSV() {
     rows.push(row);
   });
   const blob = new Blob([rows.join("\n")], {type:"text/csv;charset=utf-8"});
-  // check saveAs available
-  if (typeof saveAs !== "function") {
-    console.error("FileSaver (saveAs) not available.");
-    alert("Download failed: FileSaver.js not loaded.");
-    return;
-  }
+  if (typeof saveAs !== "function") { alert("Download failed: FileSaver.js not loaded."); return; }
   saveAs(blob, `Shops_Summary_${new Date().toISOString().slice(0,10)}.csv`);
 }
 
 /* -------------------------
-   ZIP Download (per-shop CSVs, filtered by leader)
-   ------------------------- */
+   ZIP Download – B/F Balance & COMM
+------------------------- */
 async function downloadAllShops() {
-  console.log("downloadAllShops triggered");
-  // dependency checks
-  if (typeof JSZip !== "function" && typeof JSZip !== "object") {
-    alert("JSZip not loaded. Please include JSZip before dashboard.js");
-    console.error("JSZip missing");
-    return;
-  }
-  if (typeof saveAs !== "function") {
-    alert("FileSaver (saveAs) not loaded. Please include FileSaver.js before dashboard.js");
-    console.error("saveAs missing");
-    return;
-  }
+  if (!cachedData.length) { alert("No shop data available"); return; }
+  const zip = new JSZip();
 
-  const overlay = createProgressOverlay();
   try {
-    setProgressText("Fetching sheets...");
-    const [deposits, withdrawals, stlm, comm, shopBalanceRaw] = await Promise.all([
-      fetch(OPENSHEET.DEPOSIT).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.WITHDRAWAL).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.STLM).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.COMM).then(r=>r.ok? r.json(): []),
-      fetch(OPENSHEET.SHOPS_BALANCE).then(r=>r.ok? r.json(): [])
+    const [depositData, withdrawalData, stlmData, commDataRaw, shopBalanceDataRaw] = await Promise.all([
+      fetch(OPENSHEET.DEPOSIT).then(r=>r.json()),
+      fetch(OPENSHEET.WITHDRAWAL).then(r=>r.json()),
+      fetch(OPENSHEET.STLM).then(r=>r.json()),
+      fetch(OPENSHEET.COMM).then(r=>r.json()),
+      fetch(OPENSHEET.SHOPS_BALANCE).then(r=>r.json())
     ]);
 
-    // normalize keys
-    const normalizeKeys = obj => { const o={}; for(const k in obj) o[cleanKey(k)] = obj[k]; return o; };
-    const shopBalance = (shopBalanceRaw||[]).map(normalizeKeys);
-    const depositsNorm = (deposits||[]).map(normalizeKeys);
-    const withdrawalsNorm = (withdrawals||[]).map(normalizeKeys);
-    const stlmNorm = (stlm||[]).map(normalizeKeys);
-    const commNorm = (comm||[]).map(normalizeKeys);
+    const shopBalanceData = shopBalanceDataRaw.map(normalize);
+    const commData = commDataRaw.map(normalize);
+    const normalizeStr = str => (str||"").trim().toUpperCase();
+    const parseNum = v => { if (!v) return 0; const s=String(v).replace(/,/g,"").replace(/\((.*)\)/,"-$1").trim(); return Number(s)||0; };
+    const parseComm = v => { if(!v) return 0; return parseFloat(String(v).replace("%",""))||0; };
+    const formatNum = v => (v||0).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 
-    setProgressText("Building CSVs per shop...");
-    // selected leader
-    const selectedLeader = document.getElementById("leaderFilter")?.value?.trim().toUpperCase() || "ALL";
-    let shopsList = shopBalance;
-    if (selectedLeader !== "ALL") shopsList = shopBalance.filter(r => ((r["TEAM LEADER"]||"").toUpperCase()) === selectedLeader);
-    const shopNames = [...new Set(shopsList.map(r => (r["SHOP"]||"").toUpperCase()))].filter(Boolean);
+    for (const shop of cachedData) {
+      const shopName = shop["SHOP NAME"];
+      const normalizedShop = normalizeStr(shopName);
+      const teamLeader = shop["TEAM LEADER"] || "Unknown";
 
-    const zip = new JSZip();
-    let idx = 0;
-    for (const shopNormalized of shopNames) {
-      idx++;
-      setProgressText(`Building CSVs (${idx} / ${shopNames.length})`);
-      document.getElementById("zipProgressCounter").textContent = `${idx} / ${shopNames.length} shops processed`;
+      const shopRow = shopBalanceData.find(r => normalizeStr(r["SHOP"]) === normalizedShop);
+      const bringForwardBalance = parseNum(shopRow?.["BRING FORWARD BALANCE"] || shopRow?.["OPENING BALANCE"] || 0);
+      const securityDeposit = parseNum(shopRow?.["SECURITY DEPOSIT"] || 0);
 
-      const shopRow = shopBalance.find(r => (r["SHOP"]||"").toUpperCase() === shopNormalized) || {};
-      const teamLeader = shopRow["TEAM LEADER"] || "";
-      const securityDeposit = parseNumber(shopRow["SECURITY DEPOSIT"]);
-      const bringForwardBalance = parseNumber(shopRow["BRING FORWARD BALANCE"] || shopRow["BRING FORWARD BALANCE "] || 0);
+      const commRow = commData.find(r => normalizeStr(r["SHOP"]) === normalizedShop);
+      const dpCommRate = parseComm(commRow?.["DP COMM"] || 0);
+      const wdCommRate = parseComm(commRow?.["WD COMM"] || 0);
+      const addCommRate = parseComm(commRow?.["ADD COMM"] || 0);
 
-      const shopCommRow = commNorm.find(r => (r["SHOP"]||"").toUpperCase() === shopNormalized) || {};
-      const dpCommRate = parseNumber(shopCommRow["DP COMM"]);
-      const wdCommRate = parseNumber(shopCommRow["WD COMM"]);
-      const addCommRate = parseNumber(shopCommRow["ADD COMM"]);
-
-      // find dates
-      const dateSet = new Set([
-        ...(depositsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
-        ...(withdrawalsNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"]),
-        ...(stlmNorm||[]).filter(r => (r["SHOP"]||"").toUpperCase() === shopNormalized).map(r => r["DATE"])
+      const datesSet = new Set([
+        ...depositData.filter(r=>normalizeStr(r.SHOP)===normalizedShop).map(r=>r.DATE),
+        ...withdrawalData.filter(r=>normalizeStr(r.SHOP)===normalizedShop).map(r=>r.DATE),
+        ...stlmData.filter(r=>normalizeStr(r.SHOP)===normalizedShop).map(r=>r.DATE)
       ]);
-      const sortedDates = Array.from(dateSet).filter(Boolean).sort((a,b)=> new Date(a)-new Date(b));
-
-      // build rows
-      const csvRows = [
-        [shopNormalized],
-        [`Shop Name: ${shopNormalized}`],
-        [`Security Deposit: ${securityDeposit.toFixed(2)}`],
-        [`Bring Forward Balance: ${bringForwardBalance.toFixed(2)}`],
-        [`Team Leader: ${teamLeader}`],
-        [],
-        ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"]
-      ];
+      const sortedDates = Array.from(datesSet).filter(Boolean).sort((a,b)=>new Date(a)-new Date(b));
 
       let runningBalance = bringForwardBalance;
-      csvRows.push(["B/F Balance","0.00","0.00","0.00","0.00","0.00","0.00","0.00",securityDeposit.toFixed(2),"0.00","0.00","0.00",runningBalance.toFixed(2)]);
+      const csvRows = [];
 
-      // helper to sum
-      const sumRows = (arr, date, shop, key, mode=null) => {
-        return (arr||[]).filter(r => ((r["SHOP"]||"").toUpperCase() === shop) && r["DATE"] === date && (mode ? ((r["MODE"]||"").toUpperCase() === mode) : true))
-                        .reduce((s, rr) => s + parseNumber(rr[key] || rr["AMOUNT"] || 0), 0);
-      };
+      csvRows.push(shopName);
+      csvRows.push(`Shop Name: ${shopName}`);
+      csvRows.push(`Security Deposit: ${formatNum(securityDeposit)}`);
+      csvRows.push(`Bring Forward Balance: ${formatNum(bringForwardBalance)}`);
+      csvRows.push(`Team Leader: ${teamLeader}`);
+      const headers = ["DATE","DEPOSIT","WITHDRAWAL","IN","OUT","SETTLEMENT","SPECIAL PAYMENT","ADJUSTMENT","SEC DEPOSIT","DP COMM","WD COMM","ADD COMM","BALANCE"];
+      csvRows.push(headers.map(h=>`"${h}"`).join(','));
+
+      // B/F Balance row
+      csvRows.push([
+        'B/F Balance','0','0','0','0','0','0','0','0',
+        formatNum(bringForwardBalance*dpCommRate/100),
+        formatNum(bringForwardBalance*wdCommRate/100),
+        formatNum(bringForwardBalance*addCommRate/100),
+        formatNum(runningBalance)
+      ].map(v=>`"${v}"`).join(','));
 
       for (const date of sortedDates) {
-        const depTotal = sumRows(depositsNorm, date, shopNormalized, "AMOUNT");
-        const wdTotal = sumRows(withdrawalsNorm, date, shopNormalized, "AMOUNT");
-        const inAmt = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "IN");
-        const outAmt = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "OUT");
-        const settlement = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SETTLEMENT");
-        const specialPayment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SPECIAL PAYMENT");
-        const adjustment = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "ADJUSTMENT");
-        const secDepRow = sumRows(stlmNorm, date, shopNormalized, "AMOUNT", "SECURITY DEPOSIT");
+        const deposits = depositData.filter(r=>normalizeStr(r.SHOP)===normalizedShop && r.DATE===date);
+        const withdrawals = withdrawalData.filter(r=>normalizeStr(r.SHOP)===normalizedShop && r.DATE===date);
+        const stlmForDate = stlmData.filter(r=>normalizeStr(r.SHOP)===normalizedShop && r.DATE===date);
 
-        const dpComm = depTotal * dpCommRate/100;
-        const wdComm = wdTotal * wdCommRate/100;
-        const addComm = depTotal * addCommRate/100;
+        const depTotal = deposits.reduce((s,r)=>s+parseNum(r.AMOUNT),0);
+        const wdTotal = withdrawals.reduce((s,r)=>s+parseNum(r.AMOUNT),0);
+        const sumMode = mode => stlmForDate.filter(r=>normalizeStr(r.MODE)===mode).reduce((s,r)=>s+parseNum(r.AMOUNT),0);
 
-        runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPayment + adjustment - dpComm - wdComm - addComm;
+        const inAmt = sumMode("IN");
+        const outAmt = sumMode("OUT");
+        const settlement = sumMode("SETTLEMENT");
+        const specialPay = sumMode("SPECIAL PAYMENT");
+        const adjustment = sumMode("ADJUSTMENT");
+        const secDep = sumMode("SECURITY DEPOSIT");
+
+        const dpComm = depTotal*dpCommRate/100;
+        const wdComm = wdTotal*wdCommRate/100;
+        const addComm = depTotal*addCommRate/100;
+
+        runningBalance += depTotal - wdTotal + inAmt - outAmt - settlement - specialPay + adjustment - dpComm - wdComm - addComm;
 
         csvRows.push([
           date,
-          depTotal.toFixed(2),
-          wdTotal.toFixed(2),
-          inAmt.toFixed(2),
-          outAmt.toFixed(2),
-          settlement.toFixed(2),
-          specialPayment.toFixed(2),
-          adjustment.toFixed(2),
-          secDepRow.toFixed(2),
-          dpComm.toFixed(2),
-          wdComm.toFixed(2),
-          addComm.toFixed(2),
-          runningBalance.toFixed(2)
-        ]);
+          formatNum(depTotal),
+          formatNum(wdTotal),
+          formatNum(inAmt),
+          formatNum(outAmt),
+          formatNum(settlement),
+          formatNum(specialPay),
+          formatNum(adjustment),
+          formatNum(secDep),
+          formatNum(dpComm),
+          formatNum(wdComm),
+          formatNum(addComm),
+          formatNum(runningBalance)
+        ].map(v=>`"${v}"`).join(','));
       }
 
-      // Safe totals
-      const totals = {deposit:0,withdrawal:0,in:0,out:0,settlement:0,specialPayment:0,adjustment:0,secDep:0,dpComm:0,wdComm:0,addComm:0};
-      for (const row of csvRows) {
-        if (!row || row.length < 13) continue;
-        if (row[0] === "DATE" || row[0] === "B/F Balance" || row[0] === "TOTAL" || !row[1]) continue;
-        totals.deposit += parseNumber(row[1]);
-        totals.withdrawal += parseNumber(row[2]);
-        totals.in += parseNumber(row[3]);
-        totals.out += parseNumber(row[4]);
-        totals.settlement += parseNumber(row[5]);
-        totals.specialPayment += parseNumber(row[6]);
-        totals.adjustment += parseNumber(row[7]);
-        totals.secDep += parseNumber(row[8]);
-        totals.dpComm += parseNumber(row[9]);
-        totals.wdComm += parseNumber(row[10]);
-        totals.addComm += parseNumber(row[11]);
-      }
-
-      csvRows.push(["TOTAL",
-        totals.deposit.toFixed(2),
-        totals.withdrawal.toFixed(2),
-        totals.in.toFixed(2),
-        totals.out.toFixed(2),
-        totals.settlement.toFixed(2),
-        totals.specialPayment.toFixed(2),
-        totals.adjustment.toFixed(2),
-        totals.secDep.toFixed(2),
-        totals.dpComm.toFixed(2),
-        totals.wdComm.toFixed(2),
-        totals.addComm.toFixed(2),
-        runningBalance.toFixed(2)
-      ]);
-
-      const csvText = csvRows.map(row => row.map(cell => `"${String(cell??"").replace(/"/g,'""')}"`).join(",")).join("\n");
-      const safeName = (shopNormalized||"UNKNOWN").replace(/[\\/:*?"<>|]/g,"_");
-      zip.file(`${safeName}.csv`, csvText);
+      const folder = zip.folder(teamLeader);
+      folder.file(`${shopName}.csv`, csvRows.join('\n'));
     }
 
-    setProgressText("Generating ZIP file...");
-    document.getElementById("zipProgressCounter").textContent = "";
+    const content = await zip.generateAsync({type:"blob"});
+    saveAs(content, `All_Shops_Summary_${new Date().toISOString().slice(0,10)}.zip`);
 
-    const blob = await zip.generateAsync({ type: "blob" });
-    saveAs(blob, `Shop_Daily_Summaries_${new Date().toISOString().slice(0,10)}.zip`);
-    overlay.remove();
-    alert("ZIP download started.");
-  } catch (err) {
-    console.error("ZIP creation error:", err);
-    overlay.remove();
-    alert("ZIP generation failed: " + (err && err.message ? err.message : err));
+  } catch(err){
+    console.error(err);
+    alert("⚠️ Failed to generate ZIP: "+err.message);
   }
 }
 
-function createProgressOverlay(){
-  let overlay = document.getElementById("zipProgressOverlay");
-  if (overlay) return overlay;
-  overlay = document.createElement("div");
-  overlay.id = "zipProgressOverlay";
-  overlay.style.cssText = `position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.45);z-index:99998;`;
-  overlay.innerHTML = `<div style="background:#fff;padding:20px;border-radius:10px;min-width:260px;text-align:center;">
-    <div id="zipProgressText" style="font-weight:600;margin-bottom:8px;">Building ZIP... please wait</div>
-    <div id="zipProgressCounter" style="font-size:13px;color:#555;"></div>
-  </div>`;
-  document.body.appendChild(overlay);
-  return overlay;
-}
-function setProgressText(txt){ const el=document.getElementById("zipProgressText"); if(el) el.textContent=txt; }
-
 /* -------------------------
-   Init
-   ------------------------- */
-document.addEventListener("DOMContentLoaded", async ()=>{
+   Init Dashboard
+------------------------- */
+async function initDashboard() {
   try {
-    await showPinModal();
     rawData = await fetchShopsBalance();
     buildTeamLeaderDropdown(rawData);
     buildGroupDropdown(rawData);
     buildSummary(rawData);
 
-    // Auto-filter + absolute lock if ?teamLeader present
-const params = new URLSearchParams(window.location.search);
-const leaderParam = (params.get("teamLeader") || "").toUpperCase();
-if (leaderParam) {
-  const leaderSelect = document.getElementById("leaderFilter");
-  if (leaderSelect) {
-    leaderSelect.value = leaderParam;
-    leaderSelect.disabled = true; // 🔒 absolute filter
-    buildGroupDropdown(rawData, leaderParam);
-    filterData();
-  }
-  // persist URL param
-  const url = new URL(window.location.href);
-  if (url.searchParams.get("teamLeader") !== leaderParam) {
-    url.searchParams.set("teamLeader", leaderParam);
-    window.history.replaceState({}, "", url.href);
-  }
-}
+    const params = new URLSearchParams(window.location.search);
+    const leaderParam = (params.get("teamLeader") || "").toUpperCase();
+    if (leaderParam) {
+      const leaderSelect = document.getElementById("leaderFilter");
+      if (leaderSelect) {
+        leaderSelect.value = leaderParam;
+        leaderSelect.disabled = true;
+        buildGroupDropdown(rawData, leaderParam);
+        filterData();
+      }
+    }
 
-    // wire up UI - make sure these IDs exist in your HTML
     const leaderFilter = document.getElementById("leaderFilter");
     const groupFilter = document.getElementById("groupFilter");
     const searchInput = document.getElementById("searchInput");
     const prevPage = document.getElementById("prevPage");
     const nextPage = document.getElementById("nextPage");
-    const exportBtn = document.getElementById("exportBtn");          // matches your HTML
-    const zipBtn = document.getElementById("downloadAllShopsBtn");  // matches your HTML
+    const exportBtn = document.getElementById("exportBtn");
+    const zipBtn = document.getElementById("downloadAllShopsBtn");
 
     if (leaderFilter) leaderFilter.addEventListener("change", e => { buildGroupDropdown(rawData, e.target.value); filterData(); });
     if (groupFilter) groupFilter.addEventListener("change", filterData);
@@ -475,9 +349,8 @@ if (leaderParam) {
     if (exportBtn) exportBtn.addEventListener("click", exportCSV);
     if (zipBtn) zipBtn.addEventListener("click", downloadAllShops);
 
-  } catch (e) {
-    console.error("Init error:", e);
-    alert("Access denied or failed to load data.");
-  }
-});
+  } catch(err){ console.error(err); alert("Failed to initialize dashboard: "+err.message); }
+}
+
+window.initDashboard = initDashboard;
 
