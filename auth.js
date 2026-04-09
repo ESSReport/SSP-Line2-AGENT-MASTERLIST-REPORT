@@ -8,7 +8,7 @@ const TL_PINS = {
   "XYZ": "133548",
   "JAVED": "592297",
   "AIMAN": "938106",
-  "BERLIN": "933222",
+  "BERLIN": "882271",
   "SHARIF": "475183",
   "KING": "229126",
   "OSMAN": "563902",
