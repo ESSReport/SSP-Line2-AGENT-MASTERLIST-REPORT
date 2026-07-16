@@ -3,7 +3,7 @@
 const ADMIN_PIN = "11302024";
 const TL_PINS = {
   "LEE": "220685",
-  "DARAZ": "805441",
+  "DARAZ": "560723",
   "ONEMEN": "472199",
   "XYZ": "133548",
   "JAVED": "592297",
