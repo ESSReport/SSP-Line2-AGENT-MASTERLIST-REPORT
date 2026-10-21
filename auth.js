@@ -35,7 +35,6 @@ const TL_PINS = {
   "RAJ": "293496",
   "NIJHUM": "522478",
   "MUMTA": "523589",
-  "RAYHAN": "524691",
   "NOYON": "689773"
 };
 
